@@ -3,6 +3,8 @@
  * Copyright (C) 2023-2025 Sultan Alsawaf <sultan@kerneltoast.com>.
  */
 
+#include <trace/hooks/sched.h>
+
 /**
  * DOC: Capacity Aware Superset Scheduler (CASS) description
  *
@@ -276,6 +278,23 @@ static int cass_select_task_rq(struct task_struct *p, int prev_cpu,
 			       int wake_flags, bool rt)
 {
 	bool sync;
+	int target_cpu = -1;
+	int sd_flag = wake_flags & 0xF;
+
+	if (!rt) {
+		if (trace_android_rvh_select_task_rq_fair_enabled() &&
+		    !(sd_flag & SD_BALANCE_FORK))
+			sync_entity_load_avg(&p->se);
+		trace_android_rvh_select_task_rq_fair(p, prev_cpu, sd_flag,
+				wake_flags, &target_cpu);
+		if (target_cpu >= 0)
+			return target_cpu;
+	} else {
+		trace_android_rvh_select_task_rq_rt(p, prev_cpu, sd_flag,
+				wake_flags, &target_cpu);
+		if (target_cpu >= 0)
+			return target_cpu;
+	}
 
 	/* Don't balance on exec since we don't know what @p will look like */
 	if (wake_flags & SD_BALANCE_EXEC)

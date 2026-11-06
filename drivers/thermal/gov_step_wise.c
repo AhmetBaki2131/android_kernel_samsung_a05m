@@ -54,10 +54,12 @@ static unsigned long get_target_state(struct thermal_instance *instance,
 	}
 
 	if (throttle) {
-		if (trend == THERMAL_TREND_RAISING)
+		if (trend == THERMAL_TREND_RAISING ||
+		    trend == THERMAL_TREND_STABLE)
 			next_target = clamp((cur_state + 1), instance->lower, instance->upper);
 	} else {
-		if (trend == THERMAL_TREND_DROPPING) {
+		if (trend == THERMAL_TREND_DROPPING ||
+		    trend == THERMAL_TREND_STABLE) {
 			if (cur_state <= instance->lower)
 				next_target = THERMAL_NO_TARGET;
 			else
