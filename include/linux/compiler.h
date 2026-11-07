@@ -259,6 +259,8 @@ static inline void *offset_to_ptr(const int *off)
  */
 #define prevent_tail_call_optimization()	mb()
 
+#ifdef __KERNEL__
 #include <asm/rwonce.h>
+#endif
 
 #endif /* __LINUX_COMPILER_H */

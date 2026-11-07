@@ -25,7 +25,7 @@ rustdoc_test_gen-rust := y
 
 HOSTCFLAGS_sorttable.o = -I$(srctree)/tools/include
 HOSTLDLIBS_sorttable = -lpthread
-HOSTCFLAGS_asn1_compiler.o = -I$(srctree)/include
+HOSTCFLAGS_asn1_compiler.o = -idirafter $(srctree)/include
 HOSTCFLAGS_sign-file.o = $(shell $(HOSTPKG_CONFIG) --cflags libcrypto 2> /dev/null)
 HOSTLDLIBS_sign-file = $(shell $(HOSTPKG_CONFIG) --libs libcrypto 2> /dev/null || echo -lcrypto)
 

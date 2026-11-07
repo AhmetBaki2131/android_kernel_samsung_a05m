@@ -16,8 +16,10 @@
 #include "elfconfig.h"
 
 /* On BSD-alike OSes elf.h defines these according to host's word size */
+#ifndef __ANDROID__
 #undef ELF_ST_BIND
 #undef ELF_ST_TYPE
+#endif
 #undef ELF_R_SYM
 #undef ELF_R_TYPE
 
@@ -42,8 +44,12 @@
 #define Elf_Sym     Elf64_Sym
 #define Elf_Addr    Elf64_Addr
 #define Elf_Section Elf64_Half
+#ifndef ELF_ST_BIND
 #define ELF_ST_BIND ELF64_ST_BIND
+#endif
+#ifndef ELF_ST_TYPE
 #define ELF_ST_TYPE ELF64_ST_TYPE
+#endif
 
 #define Elf_Rel     Elf64_Rel
 #define Elf_Rela    Elf64_Rela

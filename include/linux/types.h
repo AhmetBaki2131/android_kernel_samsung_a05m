@@ -6,6 +6,7 @@
 #include <uapi/linux/types.h>
 
 #ifndef __ASSEMBLY__
+#ifdef __KERNEL__
 
 #define DECLARE_BITMAP(name,bits) \
 	unsigned long name[BITS_TO_LONGS(bits)]
@@ -245,5 +246,15 @@ typedef void (*swap_func_t)(void *a, void *b, int size);
 typedef int (*cmp_r_func_t)(const void *a, const void *b, const void *priv);
 typedef int (*cmp_func_t)(const void *a, const void *b);
 
+#else /* !__KERNEL__ */
+typedef __u8  u8;
+typedef __u16 u16;
+typedef __u32 u32;
+typedef __u64 u64;
+typedef __s8  s8;
+typedef __s16 s16;
+typedef __s32 s32;
+typedef __s64 s64;
+#endif /* __KERNEL__ */
 #endif /*  __ASSEMBLY__ */
 #endif /* _LINUX_TYPES_H */

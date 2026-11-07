@@ -23,6 +23,11 @@
 #include <linux/stddef.h>
 #include <linux/libc-compat.h>
 #include <linux/socket.h>
+#ifdef __ANDROID__
+typedef __u32 in_addr_t;
+#include <bits/sockaddr_storage.h>
+#define __kernel_sockaddr_storage sockaddr_storage
+#endif
 
 #if __UAPI_DEF_IN_IPPROTO
 /* Standard well-defined IP protocols.  */

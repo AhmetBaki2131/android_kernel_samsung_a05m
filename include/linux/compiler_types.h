@@ -78,7 +78,9 @@ static inline void __chk_io_ptr(const volatile void __iomem *ptr) { }
 # define __force
 # define __nocast
 # define __safe
-# define __private
+# ifdef __KERNEL__
+#  define __private
+# endif
 # define ACCESS_PRIVATE(p, member) ((p)->member)
 # define __builtin_warning(x, y...) (1)
 #endif /* __CHECKER__ */

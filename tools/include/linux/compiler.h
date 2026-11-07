@@ -63,17 +63,6 @@
 # define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 #endif
 
-#ifdef __ANDROID__
-/*
- * FIXME: Big hammer to get rid of tons of:
- *   "warning: always_inline function might not be inlinable"
- *
- * At least on android-ndk-r12/platforms/android-24/arch-arm
- */
-#undef __always_inline
-#define __always_inline	inline
-#endif
-
 #define __user
 #define __rcu
 #define __read_mostly
@@ -132,7 +121,7 @@ typedef __u16 __attribute__((__may_alias__)) __u16_alias_t;
 typedef __u32 __attribute__((__may_alias__)) __u32_alias_t;
 typedef __u64 __attribute__((__may_alias__)) __u64_alias_t;
 
-static __always_inline void __read_once_size(const volatile void *p, void *res, int size)
+static __always_inline __maybe_unused void __read_once_size(const volatile void *p, void *res, int size)
 {
 	switch (size) {
 	case 1: *(__u8_alias_t  *) res = *(volatile __u8_alias_t  *) p; break;
@@ -146,7 +135,7 @@ static __always_inline void __read_once_size(const volatile void *p, void *res, 
 	}
 }
 
-static __always_inline void __write_once_size(volatile void *p, void *res, int size)
+static __always_inline __maybe_unused void __write_once_size(volatile void *p, void *res, int size)
 {
 	switch (size) {
 	case 1: *(volatile  __u8_alias_t *) p = *(__u8_alias_t  *) res; break;
