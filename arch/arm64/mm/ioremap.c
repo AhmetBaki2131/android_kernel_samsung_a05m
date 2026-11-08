@@ -2,6 +2,7 @@
 
 #define pr_fmt(fmt)	"ioremap: " fmt
 
+#define ioremap_prot __inline_ioremap_prot
 #include <linux/maple_tree.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -9,6 +10,7 @@
 #include <linux/arm-smccc.h>
 
 #include <asm/hypervisor.h>
+#undef ioremap_prot
 
 #ifndef ARM_SMCCC_KVM_FUNC_MMIO_GUARD_INFO
 #define ARM_SMCCC_KVM_FUNC_MMIO_GUARD_INFO	5
@@ -379,6 +381,13 @@ void __iomem *__ioremap_prot(phys_addr_t phys_addr, size_t size,
 	return generic_ioremap_prot(phys_addr, size, pgprot);
 }
 EXPORT_SYMBOL(__ioremap_prot);
+
+void __iomem *ioremap_prot(phys_addr_t phys_addr, size_t size,
+			   unsigned long prot)
+{
+	return __ioremap_prot(phys_addr, size, __pgprot(prot));
+}
+EXPORT_SYMBOL(ioremap_prot);
 
 /*
  * Must be called after early_fixmap_init

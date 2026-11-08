@@ -37,6 +37,8 @@ KBUILD_AFLAGS	+= -gz=zstd
 KBUILD_LDFLAGS	+= --compress-debug-sections=zstd
 endif
 
+KBUILD_LDFLAGS	+= --threads=1
+
 KBUILD_CFLAGS	+= $(DEBUG_CFLAGS)
 export DEBUG_CFLAGS
 

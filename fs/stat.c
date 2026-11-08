@@ -102,6 +102,19 @@ EXPORT_SYMBOL(generic_fill_statx_attr);
  * filehandle lookup code, which uses only the inode number and returns no
  * attributes to any user.  Any other code probably wants vfs_getattr.
  */
+#ifdef CONFIG_KSU
+#include <linux/susfs_def.h>
+extern struct static_key_true ksu_su_compat_enabled;
+extern struct static_key_true ksu_is_init_rc_hook_enabled;
+extern bool __ksu_is_allow_uid_for_current(uid_t uid);
+extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
+extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
+extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *stat, u32 result_mask);
+#endif
+
 int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 		      u32 request_mask, unsigned int query_flags)
 {
@@ -130,13 +143,35 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	stat->attributes_mask |= (STATX_ATTR_AUTOMOUNT |
 				  STATX_ATTR_DAX);
 
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	if (susfs_is_current_app_uid()) {
+		bool is_fuse = false;
+		if (susfs_is_inode_sus_kstat(inode, &is_fuse)) {
+			stat->result_mask |= is_fuse ? STATX_SUS_KSTAT_FUSE : STATX_SUS_KSTAT;
+			stat->mnt_id = real_mount(path->mnt)->mnt_id;
+		}
+	}
+#endif
+
 	idmap = mnt_idmap(path->mnt);
-	if (inode->i_op->getattr)
-		return inode->i_op->getattr(idmap, path, stat,
+	if (inode->i_op->getattr) {
+		int ret = inode->i_op->getattr(idmap, path, stat,
 					    request_mask,
 					    query_flags | AT_GETATTR_NOSEC);
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+		if (unlikely(stat->result_mask & STATX_SUS_KSTAT))
+			susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
+		else if (unlikely(stat->result_mask & STATX_SUS_KSTAT_FUSE))
+			susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT_FUSE);
+#endif
+		return ret;
+	}
 
 	generic_fillattr(idmap, request_mask, inode, stat);
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	if (unlikely(stat->result_mask & STATX_SUS_KSTAT))
+		susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
+#endif
 	return 0;
 }
 EXPORT_SYMBOL(vfs_getattr_nosec);
@@ -196,6 +231,10 @@ int vfs_fstat(int fd, struct kstat *stat)
 	if (!f.file)
 		return -EBADF;
 	error = vfs_getattr(&f.file->f_path, stat, STATX_BASIC_STATS, 0);
+#ifdef CONFIG_KSU
+	if (static_branch_unlikely(&ksu_is_init_rc_hook_enabled))
+		ksu_handle_vfs_fstat(fd, &stat->size);
+#endif
 	fdput(f);
 	return error;
 }
@@ -233,12 +272,22 @@ static int vfs_statx(int dfd, struct filename *filename, int flags,
 	      struct kstat *stat, u32 request_mask)
 {
 	struct path path;
-	unsigned int lookup_flags = getname_statx_lookup_flags(flags);
+	unsigned int lookup_flags;
 	int error;
 
 	if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH |
 		      AT_STATX_SYNC_TYPE))
 		return -EINVAL;
+
+#ifdef CONFIG_KSU
+	if (unlikely(!susfs_is_current_proc_no_su())) {
+		if (static_branch_unlikely(&ksu_su_compat_enabled)) {
+			if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
+				ksu_handle_stat(&dfd, &filename, &flags);
+		}
+	}
+#endif
+	lookup_flags = getname_statx_lookup_flags(flags);
 
 retry:
 	error = filename_lookup(dfd, filename, lookup_flags, &path, NULL);
@@ -247,7 +296,14 @@ retry:
 
 	error = vfs_getattr(&path, stat, request_mask, flags);
 
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	if (unlikely(stat->result_mask & (STATX_SUS_KSTAT | STATX_SUS_KSTAT_FUSE)))
+		stat->result_mask &= ~(STATX_SUS_KSTAT | STATX_SUS_KSTAT_FUSE);
+	else
+		stat->mnt_id = real_mount(path.mnt)->mnt_id;
+#else
 	stat->mnt_id = real_mount(path.mnt)->mnt_id;
+#endif
 	stat->result_mask |= STATX_MNT_ID;
 
 	if (path.mnt->mnt_root == path.dentry)

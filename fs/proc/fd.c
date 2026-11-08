@@ -19,6 +19,17 @@
 #include "../mount.h"
 #include "internal.h"
 #include "fd.h"
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_def.h>
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
+extern void susfs_sus_kstat_spoof_proc_fd_seq_show(int *out_target_mnt_id, unsigned long *out_target_ino, dev_t target_dev);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+extern int susfs_get_non_sus_mnt_id_from_mnt(struct mount *orig_mnt);
+#endif
 
 static int seq_show(struct seq_file *m, void *v)
 {
@@ -56,10 +67,54 @@ static int seq_show(struct seq_file *m, void *v)
 	if (ret)
 		return ret;
 
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	if (susfs_is_current_app_uid()) {
+		bool is_fuse = false;
+
+		if (unlikely(susfs_is_inode_sus_kstat(file_inode(file), &is_fuse))) {
+			int target_mnt_id = real_mount(file->f_path.mnt)->mnt_id;
+			unsigned long target_ino = file_inode(file)->i_ino;
+
+			susfs_sus_kstat_spoof_proc_fd_seq_show(&target_mnt_id, &target_ino, file_inode(file)->i_sb->s_dev);
+			seq_printf(m, "pos:\t%lli\nflags:\t0%o\nmnt_id:\t%i\nino:\t%lu\n",
+				   (long long)file->f_pos, f_flags,
+				   target_mnt_id, target_ino);
+			goto bypass_orig_flow;
+		}
+	}
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+	if (susfs_is_current_proc_umounted() &&
+	    unlikely(real_mount(file->f_path.mnt)->mnt_id >= DEFAULT_KSU_MNT_ID)) {
+		char *pathname = kmalloc(PAGE_SIZE, GFP_KERNEL);
+		char *dpath;
+		struct path path;
+
+		if (pathname) {
+			dpath = d_path(&file->f_path, pathname, PAGE_SIZE);
+			if (!IS_ERR(dpath) && !kern_path(dpath, 0, &path)) {
+				if (path.dentry->d_inode) {
+					seq_printf(m, "pos:\t%lli\nflags:\t0%o\nmnt_id:\t%i\nino:\t%lu\n",
+						   (long long)file->f_pos, f_flags,
+						   susfs_get_non_sus_mnt_id_from_mnt(real_mount(file->f_path.mnt)),
+						   path.dentry->d_inode->i_ino);
+					path_put(&path);
+					kfree(pathname);
+					goto bypass_orig_flow;
+				}
+				path_put(&path);
+			}
+			kfree(pathname);
+		}
+	}
+#endif
 	seq_printf(m, "pos:\t%lli\nflags:\t0%o\nmnt_id:\t%i\nino:\t%lu\n",
 		   (long long)file->f_pos, f_flags,
 		   real_mount(file->f_path.mnt)->mnt_id,
 		   file_inode(file)->i_ino);
+#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MOUNT)
+bypass_orig_flow:
+#endif
 
 	/* show_fd_locks() never deferences files so a stale value is safe */
 	show_fd_locks(m, file, files);

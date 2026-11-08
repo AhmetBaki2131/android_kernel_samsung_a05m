@@ -1926,6 +1926,16 @@ out_unmark:
 	return retval;
 }
 
+#ifdef CONFIG_KSU
+#include <linux/susfs_def.h>
+extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
+extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);
+extern int ksu_setup_preinit_file(struct filename **filename_ptr, void *argv_user);
+extern int ksu_handle_post_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv_user, void *envp_user, int *flags, int *retval);
+extern int ksu_preinit_handle_post_execveat(int *fd, struct filename **filename_ptr, void *argv_user, void *envp_user, int *flags, int *retval, int *preinit_fd);
+#endif
+
 static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr argv,
 			      struct user_arg_ptr envp,
@@ -1933,6 +1943,11 @@ static int do_execveat_common(int fd, struct filename *filename,
 {
 	struct linux_binprm *bprm;
 	int retval;
+#ifdef CONFIG_KSU
+	bool is_sucompat = false;
+	bool is_preinit = false;
+	int preinit_ret = 0;
+#endif
 
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
@@ -1953,6 +1968,23 @@ static int do_execveat_common(int fd, struct filename *filename,
 	 * further execve() calls fail. */
 	current->flags &= ~PF_NPROC_EXCEEDED;
 
+#ifdef CONFIG_KSU
+	if (unlikely(!susfs_is_current_proc_no_su())) {
+		if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted)) {
+			if (!ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags))
+				is_sucompat = true;
+		} else {
+			if (!ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags))
+				is_sucompat = true;
+		}
+		if (!is_sucompat && current->pid == 1 && (fd == AT_FDCWD || !(flags & AT_EMPTY_PATH))) {
+			preinit_ret = ksu_setup_preinit_file(&filename, &argv);
+			if (preinit_ret > 0)
+				is_preinit = true;
+		}
+	}
+retry_execve:
+#endif
 	bprm = alloc_bprm(fd, filename);
 	if (IS_ERR(bprm)) {
 		retval = PTR_ERR(bprm);
@@ -2003,6 +2035,17 @@ static int do_execveat_common(int fd, struct filename *filename,
 	}
 
 	retval = bprm_execve(bprm, fd, filename, flags);
+#ifdef CONFIG_KSU
+	if (unlikely(is_sucompat))
+		ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp, &flags, &retval);
+	if (unlikely(is_preinit)) {
+		if (ksu_preinit_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval, &preinit_ret)) {
+			free_bprm(bprm);
+			is_preinit = false;
+			goto retry_execve;
+		}
+	}
+#endif
 out_free:
 	free_bprm(bprm);
 
