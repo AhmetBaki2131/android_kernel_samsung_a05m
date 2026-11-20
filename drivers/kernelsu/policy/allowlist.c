@@ -1,31 +1,3 @@
-#include <linux/rcupdate.h>
-#include <linux/limits.h>
-#include <linux/rculist.h>
-#include <linux/mutex.h>
-#include <linux/task_work.h>
-#include <linux/capability.h>
-#include <linux/compiler.h>
-#include <linux/fs.h>
-#include <linux/gfp.h>
-#include <linux/kernel.h>
-#include <linux/list.h>
-#include <linux/printk.h>
-#include <linux/slab.h>
-#include <linux/types.h>
-#include <linux/version.h>
-#include <linux/compiler_types.h>
-#include <linux/hashtable.h>
-#include <linux/kref.h>
-
-#include "klog.h" // IWYU pragma: keep
-#include "ksu.h"
-#include "runtime/ksud_boot.h"
-#include "selinux/selinux.h"
-#include "policy/allowlist.h"
-#include "manager/manager_identity.h"
-#include "infra/su_mount_ns.h"
-#include "feature/shell_su_adb_only.h"
-
 #define FILE_MAGIC 0x7f4b5355 // ' KSU', u32
 #define FILE_FORMAT_VERSION 4 // u32
 
@@ -38,7 +10,7 @@ static DEFINE_MUTEX(allowlist_mutex);
 static struct root_profile default_root_profile;
 static struct non_root_profile default_non_root_profile;
 
-static void __init init_default_profiles()
+static void __init init_default_profiles(void)
 {
     kernel_cap_t full_cap = CAP_FULL_SET;
 
@@ -72,18 +44,6 @@ static u16 allow_list_count = 0;
 #define KERNEL_SU_ALLOWLIST "/data/adb/ksu/.allowlist"
 
 void ksu_persistent_allow_list(void);
-
-void ksu_show_allow_list(void)
-{
-    int i;
-    struct perm_data *p = NULL;
-    pr_info("ksu_show_allow_list\n");
-    rcu_read_lock();
-    hash_for_each_rcu (allow_list, i, p, list) {
-        pr_info("uid :%d, allow: %d\n", p->profile.curr_uid, p->profile.allow_su);
-    }
-    rcu_read_unlock();
-}
 
 struct app_profile *ksu_get_app_profile(uid_t uid)
 {
@@ -134,7 +94,6 @@ static bool profile_valid(struct app_profile *profile)
     }
 
     if (profile->allow_su) {
-#ifndef CONFIG_KSU_DISABLE_POLICY
         if (profile->rp_config.profile.groups_count > KSU_MAX_GROUPS) {
             pr_err("invalid groups_count in app_profile: %s\n", profile->key);
             return false;
@@ -147,7 +106,6 @@ static bool profile_valid(struct app_profile *profile)
             pr_err("invalid selinux_domain in app_profile: %s\n", profile->key);
             return false;
         }
-#endif
     }
 
     return true;
@@ -173,17 +131,6 @@ int ksu_set_app_profile(struct app_profile *profile)
         pr_err("Failed to set app profile: invalid profile!\n");
         return -EINVAL;
     }
-
-#ifdef CONFIG_KSU_DISABLE_POLICY
-    if (profile->allow_su) {
-        profile->rp_config.use_default = true;
-        memset(profile->rp_config.template_name, 0, sizeof(profile->rp_config.template_name));
-        memset(&profile->rp_config.profile, 0, sizeof(profile->rp_config.profile));
-    } else {
-        profile->nrp_config.use_default = true;
-        memset(&profile->nrp_config.profile, 0, sizeof(profile->nrp_config.profile));
-    }
-#endif
 
     // only allow default non root profile
     if (unlikely(profile->curr_uid == KSU_APP_PROFILE_PRESERVE_UID && strcmp(profile->key, "$") != 0)) {
@@ -303,10 +250,11 @@ bool ksu_uid_should_umount(uid_t uid)
 {
     struct app_profile *profile;
     bool res;
+    if (likely(ksu_is_manager_appid_valid()) && unlikely(ksu_get_manager_appid() == uid % PER_USER_RANGE)) {
+        // we should not umount on manager!
+        return false;
+    }
 
-#ifdef CONFIG_KSU_DISABLE_POLICY
-    return !__ksu_is_allow_uid(uid);
-#else
     rcu_read_lock();
     profile = ksu_get_app_profile(uid);
     if (!profile) {
@@ -328,7 +276,6 @@ bool ksu_uid_should_umount(uid_t uid)
     if (profile)
         ksu_put_app_profile(profile);
     return res;
-#endif
 }
 
 void ksu_put_app_profile(struct app_profile *profile)
@@ -339,10 +286,6 @@ void ksu_put_app_profile(struct app_profile *profile)
 
 struct root_profile *ksu_get_root_profile(uid_t uid)
 {
-#ifdef CONFIG_KSU_DISABLE_POLICY
-    (void)uid;
-    return &default_root_profile;
-#else
     struct perm_data *p = NULL;
     struct root_profile *res;
 
@@ -376,7 +319,6 @@ retry:
 
     rcu_read_unlock();
     return res;
-#endif
 }
 
 void ksu_put_root_profile(struct root_profile *profile)
@@ -394,7 +336,6 @@ bool ksu_get_allow_list(int *array, u16 length, u16 *out_length, u16 *out_total,
     int iter;
     rcu_read_lock();
     hash_for_each_rcu (allow_list, iter, p, list) {
-        // pr_info("get_allow_list uid: %d allow: %d\n", p->uid, p->allow);
         if (p->profile.allow_su == allow && !is_uid_manager(p->profile.curr_uid)) {
             if (j < length) {
                 array[j++] = p->profile.curr_uid;
@@ -442,9 +383,6 @@ static void do_persistent_allow_list(struct callback_head *_cb)
 
     mutex_lock(&allowlist_mutex);
     hash_for_each (allow_list, i, p, list) {
-        pr_info("save allow list, name: %s uid :%d, allow: %d\n", p->profile.key, p->profile.curr_uid,
-                p->profile.allow_su);
-
         kernel_write(fp, &p->profile, sizeof(p->profile), &off);
     }
     mutex_unlock(&allowlist_mutex);
@@ -456,7 +394,7 @@ out:
     kfree(_cb);
 }
 
-void ksu_persistent_allow_list()
+void ksu_persistent_allow_list(void)
 {
     struct task_struct *tsk;
 
@@ -498,7 +436,11 @@ static void migrate_profile(u32 version, struct app_profile *profile)
                 pr_info("migrated domain of profile: %s\n", profile->key);
             }
         }
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 6, 0)
         fallthrough;
+#else
+        /* fall through */
+#endif
     case 3:
         if (profile->allow_su) {
             profile->rp_config.profile.flags = FLAG_KSU_NO_NEW_PRIVS;
@@ -509,13 +451,8 @@ static void migrate_profile(u32 version, struct app_profile *profile)
     profile->version = KSU_APP_PROFILE_VER;
 }
 
-void ksu_load_allow_list()
+void ksu_load_allow_list(void)
 {
-#ifdef CONFIG_KSU_DISABLE_POLICY
-    pr_info("allowlist load skipped because policy is disabled\n");
-    return;
-#endif
-
     loff_t off = 0;
     ssize_t ret = 0;
     struct file *fp = NULL;
@@ -568,14 +505,12 @@ void ksu_load_allow_list()
         pr_info("load_allow_uid, name: %s, uid: %d, allow: %d\n", profile.key, profile.curr_uid, profile.allow_su);
         ksu_set_app_profile(&profile);
     }
-    ksu_show_allow_list();
     filp_close(fp, 0);
     if (version < KSU_APP_PROFILE_VER)
         ksu_persistent_allow_list();
     return;
 
 exit:
-    ksu_show_allow_list();
     filp_close(fp, 0);
 }
 
@@ -599,7 +534,6 @@ void ksu_prune_allowlist(bool (*is_uid_valid)(uid_t, char *, void *), void *data
         bool is_preserved_uid = uid == KSU_APP_PROFILE_PRESERVE_UID || uid == WEBVIEW_ZYGOTE_UID;
         if (!is_preserved_uid && !is_uid_valid(uid, package, data)) {
             modified = true;
-            pr_info("prune uid: %d, package: %s\n", uid, package);
             hlist_del_rcu(&np->list);
             put_perm_data(np);
             --allow_list_count;

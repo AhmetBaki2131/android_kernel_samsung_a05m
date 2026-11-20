@@ -323,7 +323,7 @@ static void sugov_iowait_boost(struct sugov_cpu *sg_cpu, u64 time,
  * A CPU running a task which woken up after an IO operation can have its
  * utilization boosted to speed up the completion of those IO operations.
  * The IO boost value is increased each time a task wakes up from IO, in
- * sugov_iowait_apply(), and it's instead decreased by this function,
+ * sugov_iowait_boost(), and it's instead decreased by this function,
  * each time an increase has not been requested (!iowait_boost_pending).
  *
  * A CPU which also appears to have been idle for at least one tick has also
@@ -583,7 +583,7 @@ up_rate_limit_us_store(struct gov_attr_set *attr_set, const char *buf, size_t co
 	tunables->up_rate_limit_us = rate_limit_us;
 
 	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
-		sg_policy->up_rate_delay_ns = rate_limit_us * NSEC_PER_USEC;
+		sg_policy->up_rate_delay_ns = (s64)rate_limit_us * NSEC_PER_USEC;
 		sugov_update_min_rate_limit_ns(sg_policy);
 	}
 
@@ -603,7 +603,7 @@ down_rate_limit_us_store(struct gov_attr_set *attr_set, const char *buf, size_t 
 	tunables->down_rate_limit_us = rate_limit_us;
 
 	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
-		sg_policy->down_rate_delay_ns = rate_limit_us * NSEC_PER_USEC;
+		sg_policy->down_rate_delay_ns = (s64)rate_limit_us * NSEC_PER_USEC;
 		sugov_update_min_rate_limit_ns(sg_policy);
 	}
 
@@ -635,8 +635,8 @@ rate_limit_us_store(struct gov_attr_set *attr_set, const char *buf, size_t count
 	tunables->down_rate_limit_us = rate_limit_us;
 
 	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
-		sg_policy->up_rate_delay_ns = rate_limit_us * NSEC_PER_USEC;
-		sg_policy->down_rate_delay_ns = rate_limit_us * NSEC_PER_USEC;
+		sg_policy->up_rate_delay_ns = (s64)rate_limit_us * NSEC_PER_USEC;
+		sg_policy->down_rate_delay_ns = (s64)rate_limit_us * NSEC_PER_USEC;
 		sugov_update_min_rate_limit_ns(sg_policy);
 	}
 
@@ -884,8 +884,8 @@ static int sugov_start(struct cpufreq_policy *policy)
 	void (*uu)(struct update_util_data *data, u64 time, unsigned int flags);
 	unsigned int cpu;
 
-	sg_policy->up_rate_delay_ns		= sg_policy->tunables->up_rate_limit_us * NSEC_PER_USEC;
-	sg_policy->down_rate_delay_ns		= sg_policy->tunables->down_rate_limit_us * NSEC_PER_USEC;
+	sg_policy->up_rate_delay_ns		= (s64)sg_policy->tunables->up_rate_limit_us * NSEC_PER_USEC;
+	sg_policy->down_rate_delay_ns		= (s64)sg_policy->tunables->down_rate_limit_us * NSEC_PER_USEC;
 	sugov_update_min_rate_limit_ns(sg_policy);
 	sg_policy->last_freq_update_time	= 0;
 	sg_policy->next_freq			= 0;

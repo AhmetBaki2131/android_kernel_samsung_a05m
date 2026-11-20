@@ -271,7 +271,7 @@ int verity_handle_err_hex_debug(struct dm_verity *v,
 	struct dm_buffer *buf;
 	struct mapped_device *md = dm_table_get_md(v->ti->table);
 
-	int i;
+	int i, ce;
 	char hex_str[65] = {
 		0,
 	};
@@ -290,10 +290,11 @@ int verity_handle_err_hex_debug(struct dm_verity *v,
 	}
  #endif
 
-	if (v->corrupted_errs >= DM_VERITY_MAX_CORRUPTED_ERRS)
-		goto out;
-
-	v->corrupted_errs++;
+	ce = atomic_read(&v->corrupted_errs);
+	do {
+		if (ce >= DM_VERITY_MAX_CORRUPTED_ERRS)
+			goto out;
+	} while (!atomic_try_cmpxchg(&v->corrupted_errs, &ce, ce + 1));
 
 	switch (type) {
 	case DM_VERITY_BLOCK_TYPE_DATA:
@@ -336,7 +337,7 @@ int verity_handle_err_hex_debug(struct dm_verity *v,
 
 	panic("dmv corrupt");
 
-	if (v->corrupted_errs == DM_VERITY_MAX_CORRUPTED_ERRS)
+	if (ce + 1 == DM_VERITY_MAX_CORRUPTED_ERRS)
 		DMERR("%s: reached maximum errors", v->data_dev->name);
 
 	snprintf(verity_env, DM_VERITY_ENV_LENGTH, "%s=%d,%llu",

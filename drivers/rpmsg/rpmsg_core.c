@@ -420,27 +420,22 @@ rpmsg_show_attr(dst, dst, "0x%x\n");
 rpmsg_show_attr(announce, announce ? "true" : "false", "%s\n");
 
 static ssize_t driver_override_store(struct device *dev,
-				     struct device_attribute *attr,
-				     const char *buf, size_t count)
+		struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct rpmsg_device *rpdev = to_rpmsg_device(dev);
-	int ret;
+	int ret = driver_set_override(dev, &rpdev->driver_override, buf, count);
 
-	ret = driver_set_override(dev, &rpdev->driver_override, buf, count);
-	if (ret)
-		return ret;
-
-	return count;
+	return ret ? ret : count;
 }
 
 static ssize_t driver_override_show(struct device *dev,
-				    struct device_attribute *attr, char *buf)
+		struct device_attribute *attr, char *buf)
 {
 	struct rpmsg_device *rpdev = to_rpmsg_device(dev);
 	ssize_t len;
 
 	device_lock(dev);
-	len = sysfs_emit(buf, "%s\n", rpdev->driver_override);
+	len = sysfs_emit(buf, "%s\n", rpdev->driver_override ?: "");
 	device_unlock(dev);
 	return len;
 }
@@ -623,10 +618,9 @@ int rpmsg_register_device_override(struct rpmsg_device *rpdev,
 	device_initialize(dev);
 	if (driver_override) {
 		ret = driver_set_override(dev, &rpdev->driver_override,
-					  driver_override,
-					  strlen(driver_override));
+					  driver_override, strlen(driver_override));
 		if (ret) {
-			dev_err(dev, "device_set_override failed: %d\n", ret);
+			dev_err(dev, "device_set_driver_override() failed: %d\n", ret);
 			put_device(dev);
 			return ret;
 		}

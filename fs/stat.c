@@ -104,7 +104,7 @@ EXPORT_SYMBOL(generic_fill_statx_attr);
  */
 #ifdef CONFIG_KSU
 #include <linux/susfs_def.h>
-extern struct static_key_true ksu_su_compat_enabled;
+extern bool ksu_su_compat_enabled;
 extern struct static_key_true ksu_is_init_rc_hook_enabled;
 extern bool __ksu_is_allow_uid_for_current(uid_t uid);
 extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
@@ -281,7 +281,7 @@ static int vfs_statx(int dfd, struct filename *filename, int flags,
 
 #ifdef CONFIG_KSU
 	if (unlikely(!susfs_is_current_proc_no_su())) {
-		if (static_branch_unlikely(&ksu_su_compat_enabled)) {
+		if (unlikely(READ_ONCE(ksu_su_compat_enabled))) {
 			if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
 				ksu_handle_stat(&dfd, &filename, &flags);
 		}

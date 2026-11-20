@@ -457,7 +457,7 @@ static const struct cred *access_override_creds(void)
 
 #ifdef CONFIG_KSU
 #include <linux/susfs_def.h>
-extern struct static_key_true ksu_su_compat_enabled;
+extern bool ksu_su_compat_enabled;
 extern bool __ksu_is_allow_uid_for_current(uid_t uid);
 extern int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *__unused_flags);
 #endif
@@ -494,7 +494,7 @@ retry:
 #ifdef CONFIG_KSU
 	name = getname_flags(filename, lookup_flags, NULL);
 	if (unlikely(!susfs_is_current_proc_no_su())) {
-		if (static_branch_unlikely(&ksu_su_compat_enabled)) {
+		if (unlikely(READ_ONCE(ksu_su_compat_enabled))) {
 			if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
 				ksu_handle_faccessat(&dfd, &name, &mode, NULL);
 		}

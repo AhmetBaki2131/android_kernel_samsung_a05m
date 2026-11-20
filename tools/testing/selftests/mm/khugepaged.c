@@ -1190,7 +1190,10 @@ int main(int argc, char **argv)
 		.read_ahead_kb = 0,
 	};
 
-	parse_test_type(argc, argv);
+	if (!thp_is_enabled()) {
+		printf("Transparent Hugepages not available\n");
+		return KSFT_SKIP;
+	}
 
 	setbuf(stdout, NULL);
 

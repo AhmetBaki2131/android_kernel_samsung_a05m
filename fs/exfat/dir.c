@@ -534,18 +534,33 @@ static void exfat_free_benign_secondary_clusters(struct inode *inode,
 }
 
 void exfat_init_ext_entry(struct exfat_entry_set_cache *es, int num_entries,
-		struct exfat_uni_name *p_uniname)
+		struct exfat_uni_name *p_uniname,
+		struct exfat_entry_set_cache *old_es, int num_extra)
 {
-	int i;
+	int i, src_start = 0;
 	unsigned short *uniname = p_uniname->name;
 	struct exfat_dentry *ep;
 
+	if (WARN_ON(num_extra < 0 || (num_extra && (!old_es ||
+		    old_es->num_entries < ES_IDX_FIRST_FILENAME + num_extra))))
+		num_extra = 0;
+
+	if (old_es && num_extra > 0)
+		src_start = old_es->num_entries - num_extra;
+
 	ep = exfat_get_dentry_cached(es, ES_IDX_FILE);
-	ep->dentry.file.num_ext = (unsigned char)(num_entries - 1);
+	ep->dentry.file.num_ext = (unsigned char)(num_entries - 1 + num_extra);
 
 	ep = exfat_get_dentry_cached(es, ES_IDX_STREAM);
 	ep->dentry.stream.name_len = p_uniname->name_len;
 	ep->dentry.stream.name_hash = cpu_to_le16(p_uniname->name_hash);
+
+	if (old_es && num_extra > 0) {
+		for (i = 0; i < num_extra; i++) {
+			*exfat_get_dentry_cached(es, num_entries + i) =
+				*exfat_get_dentry_cached(old_es, src_start + i);
+		}
+	}
 
 	for (i = ES_IDX_FIRST_FILENAME; i < num_entries; i++) {
 		ep = exfat_get_dentry_cached(es, i);
@@ -557,7 +572,7 @@ void exfat_init_ext_entry(struct exfat_entry_set_cache *es, int num_entries,
 }
 
 void exfat_remove_entries(struct inode *inode, struct exfat_entry_set_cache *es,
-		int order)
+		int order, bool free_benign)
 {
 	int i;
 	struct exfat_dentry *ep;
@@ -565,7 +580,7 @@ void exfat_remove_entries(struct inode *inode, struct exfat_entry_set_cache *es,
 	for (i = order; i < es->num_entries; i++) {
 		ep = exfat_get_dentry_cached(es, i);
 
-		if (exfat_get_entry_type(ep) & TYPE_BENIGN_SEC)
+		if (free_benign && (exfat_get_entry_type(ep) & TYPE_BENIGN_SEC))
 			exfat_free_benign_secondary_clusters(inode, ep);
 
 		exfat_set_entry_type(ep, TYPE_DELETED);
@@ -577,11 +592,13 @@ void exfat_remove_entries(struct inode *inode, struct exfat_entry_set_cache *es,
 
 void exfat_update_dir_chksum_with_entry_set(struct exfat_entry_set_cache *es)
 {
-	int chksum_type = CS_DIR_ENTRY, i;
+	int chksum_type = CS_DIR_ENTRY, i, num_entries;
 	unsigned short chksum = 0;
 	struct exfat_dentry *ep;
 
-	for (i = ES_IDX_FILE; i < es->num_entries; i++) {
+	ep = exfat_get_dentry_cached(es, ES_IDX_FILE);
+	num_entries = min_t(int, es->num_entries, ep->dentry.file.num_ext + 1);
+	for (i = ES_IDX_FILE; i < num_entries; i++) {
 		ep = exfat_get_dentry_cached(es, i);
 		chksum = exfat_calc_chksum16(ep, DENTRY_SIZE, chksum,
 					     chksum_type);
@@ -1135,6 +1152,7 @@ rewind:
 
 			if (entry_type == TYPE_EXTEND) {
 				unsigned short entry_uniname[16], unichar;
+				unsigned int offset;
 
 				if (step != DIRENT_STEP_NAME ||
 				    name_len >= MAX_NAME_LENGTH) {
@@ -1143,13 +1161,15 @@ rewind:
 					continue;
 				}
 
-				if (++order == 2)
-					uniname = p_uniname->name;
-				else
-					uniname += EXFAT_FILE_NAME_LEN;
-
+				offset = (++order - 2) * EXFAT_FILE_NAME_LEN;
 				len = exfat_extract_uni_name(ep, entry_uniname);
 				brelse(bh);
+				if (offset > MAX_NAME_LENGTH ||
+				    len > MAX_NAME_LENGTH - offset) {
+					step = DIRENT_STEP_FILE;
+					continue;
+				}
+				uniname = p_uniname->name + offset;
 				name_len += len;
 
 				unichar = *(uniname+len);

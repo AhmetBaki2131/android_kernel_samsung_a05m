@@ -12,6 +12,7 @@
 #define _UFS_H
 
 #include <linux/bitops.h>
+#include <linux/time64.h>
 #include <linux/types.h>
 #include <linux/android_kabi.h>
 #include <linux/android_vendor.h>
@@ -553,6 +554,13 @@ struct ufs_vreg_info {
 	struct ufs_vreg *vdd_hba;
 };
 
+#define UFS_RTC_TIME_BASELINE BIT(9)
+
+enum ufs_rtc_time {
+	UFS_RTC_RELATIVE,
+	UFS_RTC_ABSOLUTE,
+};
+
 struct ufs_dev_info {
 	bool	f_power_on_wp_en;
 	/* Keeps information if any of the LU is power on write protected */
@@ -580,6 +588,8 @@ struct ufs_dev_info {
 
 	/* UFS EXT_IID Enable */
 	bool	b_ext_iid_en;
+	enum ufs_rtc_time rtc_type;
+	time64_t rtc_time_baseline;
 
 	ANDROID_OEM_DATA(1);
 	ANDROID_KABI_RESERVE(1);

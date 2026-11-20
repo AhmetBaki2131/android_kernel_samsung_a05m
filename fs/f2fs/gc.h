@@ -1,4 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+#ifndef F2FS_GC_H
+#define F2FS_GC_H
 /*
  * fs/f2fs/gc.h
  *
@@ -44,31 +46,6 @@
 #define DEF_MAX_VICTIM_SEARCH 4096 /* covers 8GB */
 
 #define NR_GC_CHECKPOINT_SECS (3)	/* data/node/dentry sections */
-
-struct f2fs_gc_kthread {
-	struct task_struct *f2fs_gc_task;
-	wait_queue_head_t gc_wait_queue_head;
-
-	/* for gc sleep time */
-	unsigned int urgent_sleep_time;
-	unsigned int min_sleep_time;
-	unsigned int max_sleep_time;
-	unsigned int no_gc_sleep_time;
-
-	/* for changing gc mode */
-	bool gc_wake;
-
-	/* for GC_MERGE mount option */
-	wait_queue_head_t fggc_wq;		/*
-						 * caller of f2fs_balance_fs()
-						 * will wait on this wait queue.
-						 */
-
-	/* for gc control for zoned devices */
-	unsigned int no_zoned_gc_percent;
-	unsigned int boost_zoned_gc_percent;
-	unsigned int valid_thresh_ratio;
-};
 
 struct gc_inode_list {
 	struct list_head ilist;
@@ -197,3 +174,5 @@ static inline bool need_to_boost_gc(struct f2fs_sb_info *sbi)
 		return !has_enough_free_blocks(sbi, LIMIT_BOOST_ZONED_GC);
 	return has_enough_invalid_blocks(sbi);
 }
+
+#endif /* F2FS_GC_H */
