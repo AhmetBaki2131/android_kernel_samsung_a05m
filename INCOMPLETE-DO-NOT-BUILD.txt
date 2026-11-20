@@ -1,5 +1,0 @@
-INCOMPLETE 6.6.162 MERGE: DO NOT BUILD OR FLASH.
-This working copy contains unresolved merge conflicts and has not been tested.
-See ../kernel-6.6-update-patches/merge-conflicts.txt for the initial conflict report.
-The Makefile version alone does not indicate a completed upgrade.
-Original source tree remains in ../android_kernel_samsung_a05m.
